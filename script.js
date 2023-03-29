@@ -6,6 +6,7 @@ const stripe = require('stripe')("sk_test_51JI7vYCKBsnT4WzX7tNPNL5BpxcjyIzIeWBRw
 
 
 
+
 const connection = mysql.createConnection({
   host: 'localhost',
   user: 'root',
