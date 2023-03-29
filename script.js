@@ -3,7 +3,7 @@ const fs = require('fs');
 const util = require('util');
 const stripe = require('stripe')("sk_test_51JI7vYCKBsnT4WzX7tNPNL5BpxcjyIzIeWBRwZJzLEQ44Ninl3cBz9RxXNtrVCplrs8FuZP2mq5cAjTShbqb6IBe00pu45CTgH")
 
-const { AES } = require("crypto-js")
+
 
 
 const connection = mysql.createConnection({
@@ -13,111 +13,19 @@ const connection = mysql.createConnection({
   database: 'production_unclean'
 });
 
-
+/**
+ * @NOTE Only to make the query function support async await
+ */
 const query = util.promisify(connection.query).bind(connection);
-let email = async () => {
-  let rows = await query('SELECT email FROM production_unclean.users')
-  return rows;
-}
-
-let ids = async () => {
-  let rows = await query('SELECT id FROM production_unclean.users')
-  return rows;
-}
-
-
-
-const replaceEmailByYopmail = (emailArray) => {
-  let allChangedEmails = []
-  let someRandomNumbers = 0
-  let changedEmail = emailArray.map((emailObject) => {
-    let yopmailEmail = emailObject.email.split('@')[1].replace(/[\w.]+[a-z]+\.[a-z]{2,}/gi, 'yopmail.com')
-    let changedEmail = (emailObject.email.split('@')[0] + '@' + yopmailEmail).toLocaleLowerCase()
-
-    if (!allChangedEmails.includes(changedEmail)) {
-      allChangedEmails.push(changedEmail)
-      return {
-        originalEmail: emailObject.email,
-        changedEmail
-      }
-    }
-    else {
-
-      someRandomNumbers = Math.floor(Math.random() * 10000);
-      changedEmail = emailObject.email.split('@')[0] + someRandomNumbers + '@' + yopmailEmail
-      allChangedEmails.push(changedEmail)
-      return {
-        originalEmail: emailObject.email,
-        changedEmail
-      }
-    }
-  })
-
-  return changedEmail
-}
-
-let checkDuplication = (values) => {
-  const uniqueValues = new Set(values.map(v => v.changedEmail));
-  if (uniqueValues.size < values.length) return true
-  else return false
-}
-
-const updateInDatabase = async (emailObject) => {
-  try {
-    await query(`UPDATE users SET email = '${emailObject.changedEmail}' WHERE email  = '${emailObject.originalEmail}';`)
-
-  } catch (error) {
-    console.log('Exception in updating in database', error)
-  }
-}
-
-const updatePasswordInDatabase = async (id, hash) => {
-  try {
-    await query(`UPDATE users SET password = '${hash}' WHERE id  = '${id}';`)
-
-  } catch (error) {
-    console.log('Exception in updating password in database', error)
-  }
-
-}
-
-const updatePhoneNumbersInDatabase = async (id, phoneNumber) => {
-  try {
-    await query(`UPDATE phone_numbers SET national_number = '${phoneNumber}' WHERE user_id  = '${id}';`)
-
-  } catch (error) {
-    console.log('Exception in updating phone number in database', error)
-
-  }
-}
 
 
 
 
-const getUserWithRoleID = async (role_id) => {
-  let rows = await query(`SELECT id FROM production_unclean.users where user_role = '${role_id}'`)
-  return rows;
-
-}
-
-
-const getChefsFromChefTable = async () => {
-  let rows = await query(`SELECT id FROM production_unclean.chefs`)
-  return rows;
-
-}
-
-const encryptAES = (text) => {
-  try {
-
-    const encryptedHash = AES.encrypt(text, "xuHSYUmyJAHxWrNR").toString()
-    return encryptedHash
-  } catch (error) {
-    console.log('error', error)
-  }
-}
-
-
+/**
+ * @NOTE the prupose of these delay function is to wait for 7secs after making a call to stripe API
+ * Stripe throws rate limmiter error if you hit there server multiple time within 5secs
+ * @param chefID Integer
+ */
 const delayCreatingCustomer = async (chefID) => {
   try {
     return new Promise((resolve, reject) => setTimeout(async () => {
@@ -138,12 +46,18 @@ const delayCreatingCustomer = async (chefID) => {
 
 }
 
-const createCustomers = async(customerID) => {
-  
 
-  delayCreatingCustomer()
+const createCustomers = async(customerID) => {
+await delayCreatingCustomer()
 }
 
+
+
+/**
+ * @NOTE the prupose of these delay function is to wait for 7secs after making a call to stripe API
+ * Stripe throws rate limmiter error if you hit there server multiple time within 5secs
+ *  @param chefID Integer
+ */
 const delayTime = async (chefID) => {
   try {
     return new Promise((resolve, reject) => setTimeout(async () => {
@@ -178,36 +92,49 @@ const createStripeCustomerAndSavetoDB = async (chefID) => {
 
 }
 
+exports.query = query;
+
+/**
+ * @NOTE
+ * All the promises here are running concurrently instead of parallel using multi threading way. As I dont have much data so the entire code can work fine with
+ * Concurrent programming. But incase of more data we can convert the code to multi threading 
+ */
 
 
 (async () => {
   try {
-    let data = await email()
-    let emailsArray = replaceEmailByYopmail(data);
+    
+    const fetch = require('./fetchingQueries')
+    const updateObject = require('./updateQueries')
+    const utils = require('./utils')
 
-    if (checkDuplication(emailsArray)) throw new Error("Duplication in email if found before executing it in database...... ❌❌❌❌")
+    let data = await fetch.email()
+    let emailsArray = utils.replaceEmailByYopmail(data);
+
+    if (utils.checkDuplication(emailsArray)) throw new Error("Duplication in email if found before executing it in database...... ❌❌❌❌")
+
 
     Promise.allSettled(emailsArray.map(async (item) => {
-      await updateInDatabase(item)
+      await updateObject.updateInDatabase(item)
     })).then((res) => { console.log('donw with updating email') }).catch((e) => { console.log("some issue with updating email in database") })
 
 
-    const hash = encryptAES('123456789');
-    let userIds = await ids();
+    const hash = utils.encryptAES('123456789');
+    let userIds = await fetch.ids();
 
     Promise.allSettled(userIds.map(async (item) => {
-      await updatePasswordInDatabase(item.id, hash)
+      await updateObject.updatePasswordInDatabase(item.id, hash)
     })).then((res) => { console.log("done with updating password") }).catch((e) => { console.log("some issue with updating email in database") })
 
 
     Promise.allSettled(userIds.map(async (item) => {
-      await updatePhoneNumbersInDatabase(item.id, "+447700900077")
+      await updateObject.updatePhoneNumbersInDatabase(item.id, "+447700900077")
     })).then((res) => { console.log("done with updating phone number") }).catch((e) => { console.log("some issue with updating phone number in database") })
 
 
     
 
-    const chefIds = await getChefsFromChefTable()
+    const chefIds = await fetch.getChefsFromChefTable()
    
     // for (let index = 0; index < chefIds.length; index++) {
     //   await createStripeCustomerAndSavetoDB(chefIds[index].id)
